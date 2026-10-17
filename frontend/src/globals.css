@@ -1,0 +1,28 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;450;500;550;600;650;700&family=Manrope:wght@400;500;600;650;700;750;800&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+@layer base {
+ :root { --background: 220 25% 97.5%; --foreground: 222 35% 17%; --card:0 0% 100%; --card-foreground:222 35% 17%; --popover:0 0% 100%; --popover-foreground:222 35% 17%; --primary:221 83% 53%; --primary-foreground:0 0% 100%; --secondary:218 30% 96%; --secondary-foreground:222 35% 25%; --muted:220 20% 96%; --muted-foreground:219 12% 47%; --accent:217 85% 96%; --accent-foreground:221 83% 45%; --destructive:0 72% 51%; --destructive-foreground:0 0% 100%; --border:220 22% 91%; --input:220 22% 89%; --ring:221 83% 53%; --radius:0.7rem; --navy:#122b55; --blue:#2563eb; }
+ * { @apply border-border; }
+ body { @apply bg-background text-foreground; font-family:'DM Sans',sans-serif; -webkit-font-smoothing:antialiased; }
+ h1,h2,h3,.brand { font-family:'Manrope',sans-serif; }
+ button,a,input,select { -webkit-tap-highlight-color:transparent; }
+ button { @apply transition-colors; }
+ button:focus-visible,a:focus-visible { @apply outline-none ring-2 ring-blue-500 ring-offset-2; }
+ input,select,textarea { @apply outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500; }
+}
+@layer components {
+ .panel { @apply rounded-xl border border-slate-200/80 bg-white shadow-[0_2px_3px_-2px_rgba(15,23,42,0.04)]; }
+ .btn { @apply inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-[13px] font-semibold text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed; }
+ .btn-light { @apply inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 py-2.5 text-[13px] font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-40; }
+ .field { @apply w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm; }
+ .form-label { @apply mb-1.5 block text-xs font-semibold text-slate-600; }
+ .page-title { @apply text-[26px] font-extrabold tracking-[-1px] text-slate-800; }
+ .table-th { @apply bg-slate-50/80 px-5 py-3.5 text-left text-[10px] font-semibold uppercase tracking-[0.07em] text-slate-500; }
+ .table-td { @apply border-t border-slate-100 px-5 py-4 text-[12px]; }
+}
+::-webkit-scrollbar{width:5px;height:5px} ::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:10px}
+@keyframes rise{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:translateY(0)}}
+.page-enter{animation:rise .3s ease-out}
+@media print {aside,header,.no-print{display:none!important}main{margin:0!important;padding:0!important}.panel{box-shadow:none!important}body{background:white!important}}

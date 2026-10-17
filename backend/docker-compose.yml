@@ -1,0 +1,65 @@
+services:
+  mongo:
+    image: mongo:8.0
+    command: [mongod, --replSet, rs0, --bind_ip_all]
+    ports: ["127.0.0.1:27017:27017"]
+    volumes: [mongo-data:/data/db]
+    healthcheck:
+      test:
+        [
+          CMD-SHELL,
+          "mongosh --quiet --eval 'db.adminCommand({ping:1}).ok' | grep 1",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+  mongo-init:
+    image: mongo:8.0
+    depends_on:
+      mongo: { condition: service_healthy }
+    entrypoint: [bash, -c]
+    command:
+      - 'mongosh --host mongo --quiet --eval "try { rs.status() } catch (e) { rs.initiate({_id: ''rs0'', members: [{_id: 0, host: ''mongo:27017''}]}) }"'
+  mailpit:
+    image: axllent/mailpit:v1.27
+    ports: ["127.0.0.1:1025:1025", "127.0.0.1:8025:8025"]
+  api:
+    profiles: [app]
+    build: .
+    env_file: .env
+    environment:
+      MONGODB_URI: mongodb://mongo:27017/vms_dev?replicaSet=rs0
+      JWT_PRIVATE_KEY_PATH: /run/secrets/jwt-private.pem
+      JWT_PUBLIC_KEY_PATH: /run/secrets/jwt-public.pem
+      SMTP_HOST: mailpit
+    volumes: [./secrets:/run/secrets:ro]
+    ports: ["127.0.0.1:4000:4000"]
+    depends_on:
+      mongo-init: { condition: service_completed_successfully }
+    healthcheck:
+      test:
+        [
+          CMD,
+          node,
+          -e,
+          "fetch('http://localhost:4000/api/v1/health/live').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+  worker:
+    stop_grace_period: 30s
+    profiles: [app]
+    build: .
+    command: [node, dist/worker.js]
+    env_file: .env
+    environment:
+      MONGODB_URI: mongodb://mongo:27017/vms_dev?replicaSet=rs0
+      JWT_PRIVATE_KEY_PATH: /run/secrets/jwt-private.pem
+      JWT_PUBLIC_KEY_PATH: /run/secrets/jwt-public.pem
+      SMTP_HOST: mailpit
+    volumes: [./secrets:/run/secrets:ro]
+    depends_on:
+      mongo-init: { condition: service_completed_successfully }
+volumes:
+  mongo-data:

@@ -1,0 +1,7 @@
+{
+  "preset": "ts-jest",
+  "testEnvironment": "node",
+  "testMatch": ["**/test/e2e/**/*.ts"],
+  "testTimeout": 60000,
+  "watchman": false
+}
