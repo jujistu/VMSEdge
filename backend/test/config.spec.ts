@@ -36,6 +36,12 @@ it.each([
   { PII_ENCRYPTION_KEY: "placeholder" },
   { ORGANIZATION_TIMEZONE: "UTC" },
   { NODE_ENV: "production" },
+  { EMAIL_AUTOMATION_ENABLED: "yes" },
+  { REPORT_EMAILS_ENABLED: "1" },
+  { REPORT_EMAIL_HOUR: "24" },
+  { REPORT_EMAIL_HOUR: "-1" },
+  { VISIT_REMINDER_MINUTES: "0" },
+  { APPROVAL_REMINDER_MINUTES: "15", APPROVAL_ESCALATION_MINUTES: "5" },
 ])("rejects invalid configuration %j", (override) => {
   expect(() => configuration({ ...env, ...override })).toThrow();
 });

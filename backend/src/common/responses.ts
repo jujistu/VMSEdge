@@ -1,5 +1,5 @@
-import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
-import { Role, VisitStatus } from "./domain";
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Role, VisitStatus } from './domain';
 export class PersonResponse {
   @ApiProperty() id!: string;
   @ApiProperty() visitorId!: string;
@@ -29,19 +29,19 @@ export class VisitResponse {
   @ApiProperty() version!: number;
   @ApiProperty() purpose!: string;
   @ApiProperty() source!: string;
-  @ApiProperty({ format: "date-time" }) expectedArrivalAt!: string;
-  @ApiProperty({ format: "date-time" }) expectedDepartureAt!: string;
-  @ApiPropertyOptional({ format: "date-time" }) actualCheckInAt?: string;
-  @ApiPropertyOptional({ format: "date-time" }) actualCheckOutAt?: string;
+  @ApiProperty({ format: 'date-time' }) expectedArrivalAt!: string;
+  @ApiProperty({ format: 'date-time' }) expectedDepartureAt!: string;
+  @ApiPropertyOptional({ format: 'date-time' }) actualCheckInAt?: string;
+  @ApiPropertyOptional({ format: 'date-time' }) actualCheckOutAt?: string;
   @ApiProperty({ type: PersonResponse }) visitor!: PersonResponse;
-  @ApiProperty({ type: "object", additionalProperties: true }) host!: object;
-  @ApiProperty({ type: "object", additionalProperties: true })
+  @ApiProperty({ type: 'object', additionalProperties: true }) host!: object;
+  @ApiProperty({ type: 'object', additionalProperties: true })
   department!: object;
   @ApiProperty({ type: [String] }) allowedActions!: string[];
   @ApiProperty() canEditVisit!: boolean;
   @ApiProperty() canEditInvitation!: boolean;
   @ApiProperty() numberOfGuests!: number;
-  @ApiProperty({ type: "object", additionalProperties: true })
+  @ApiProperty({ type: 'object', additionalProperties: true })
   snapshot!: object;
 }
 export class ResponseMeta {
@@ -62,8 +62,8 @@ export class VisitEnvelope {
 }
 export class ErrorResponse {
   @ApiProperty({
-    example: { code: "VERSION_CONFLICT", message: "VERSION_CONFLICT" },
-    type: "object",
+    example: { code: 'VERSION_CONFLICT', message: 'VERSION_CONFLICT' },
+    type: 'object',
     additionalProperties: true,
   })
   error!: object;

@@ -135,6 +135,7 @@ export const schemas: Record<string, Schema> = {
       [{ hostId: 1, actualCheckInAt: -1 }, {}],
       [{ departmentId: 1, actualCheckInAt: 1 }, {}],
       [{ status: 1, expectedArrivalAt: 1 }, {}],
+      [{ status: 1, receptionArrivedAt: 1, expectedDepartureAt: 1 }, {}],
       [{ status: 1, expectedDepartureAt: 1 }, {}],
       [{ actualCheckInAt: 1, _id: 1 }, {}],
       [{ actualCheckOutAt: 1, _id: 1 }, {}],
@@ -320,6 +321,7 @@ export const schemas: Record<string, Schema> = {
     [
       [{ eventId: 1 }, { unique: true }],
       [{ status: 1, nextAttemptAt: 1, leaseUntil: 1 }, {}],
+      [{ type: 1, resourceId: 1, createdAt: -1, _id: -1 }, {}],
     ],
   ),
   idempotencyRecords: schema(

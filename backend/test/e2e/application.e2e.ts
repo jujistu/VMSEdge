@@ -8,6 +8,13 @@ import { createApp } from "../../src/bootstrap";
 import { Database } from "../../src/infrastructure/database";
 import { migrate } from "../../src/scripts/migrate";
 import { passwordHash } from "../../src/modules/auth";
+import * as emailModule from "../../src/infrastructure/email-automation";
+import { EmailAutomation } from "../../src/infrastructure/email-automation";
+import { CONFIG } from "../../src/config/config";
+const sentEmail = jest.fn(async (_options: any) => ({ rejected: [] }));
+jest.mock("nodemailer", () => ({
+  createTransport: () => ({ sendMail: sentEmail, close: jest.fn() }),
+}));
 import { OutboxWorker } from "../../src/infrastructure/worker.service";
 import { VisitsService } from "../../src/modules/visits.service";
 let app: any, db: Database, folder: string;
@@ -274,7 +281,7 @@ it("blocks rejected and blacklisted visitors", async () => {
       .countDocuments({ resourceId: v.id, action: "CHECK_IN" }),
   ).toBe(0);
 });
-it("creates staff invitations with server-derived host, manual share and strict fields", async () => {
+it("creates staff invitations with server-derived host, queued email and strict fields", async () => {
   const body = {
     visitor: { firstName: "Invited", email: "invited@example.test" },
     purpose: "Scheduled",
@@ -287,7 +294,7 @@ it("creates staff invitations with server-derived host, manual share and strict 
   expect(r.body.data.visit.hostId).toBe(users.STAFF.id);
   expect(r.body.data.invitationCode).toMatch(/^VMS-\d{4}-\d{6}$/);
   const share = await get(`/invitations/${r.body.data.id}/share`, "STAFF");
-  expect(share.body.data.deliveryStatus).toBe("NOT_SENT");
+  expect(share.body.data.deliveryStatus).toBe("QUEUED");
   expect(
     (await post("/invitations", { ...body, hostId: users.STAFF2.id }, "STAFF"))
       .status,
@@ -787,4 +794,270 @@ it("revokes an authenticated session on logout even without a refresh cookie", a
         .set("Authorization", `Bearer ${token}`)
     ).status,
   ).toBe(401);
+});
+
+it("emails invitations with calendar attachments and resends idempotently", async () => {
+  sentEmail.mockClear();
+  const key = randomUUID();
+  const body = {
+    visitor: { firstName: "EmailGuest", email: "email-guest@example.test" },
+    purpose: "Email workflow",
+    visitorType: "BUSINESS",
+    expectedArrivalAt: new Date(Date.now() + 30 * 60000).toISOString(),
+    expectedDepartureAt: new Date(Date.now() + 90 * 60000).toISOString(),
+  };
+  const first = await post("/invitations", body, "STAFF", key);
+  expect(first.status).toBe(201);
+  expect((await post("/invitations", body, "STAFF", key)).body.data.id).toBe(
+    first.body.data.id,
+  );
+  const id = first.body.data.id,
+    visitId = first.body.data.visit.id;
+  expect(
+    await db
+      .m("outboxEvents")
+      .countDocuments({ type: "INVITATION_EMAIL", resourceId: visitId }),
+  ).toBe(1);
+  await app.get(OutboxWorker).tick();
+  const mail: any = sentEmail.mock.calls.find(
+    ([options]) => options.to === "email-guest@example.test",
+  )?.[0];
+  expect(mail).toBeDefined();
+  expect(mail.text).toMatch(/Arrival: \d{4}-\d{2}-\d{2} \d{1,2}:\d{2}/);
+  expect(mail.text).not.toMatch(/T\d{2}:\d{2}:\d{2}/);
+  expect(mail.attachments[0].content).toContain("BEGIN:VCALENDAR");
+  expect(
+    (await get(`/invitations/${id}/share`, "STAFF")).body.data.deliveryStatus,
+  ).toBe("SENT");
+  const resendKey = randomUUID();
+  const resendBody = { version: first.body.data.visit.version };
+  expect(
+    (await post(`/invitations/${id}/resend`, resendBody, "STAFF", resendKey))
+      .body.data.deliveryStatus,
+  ).toBe("QUEUED");
+  await post(`/invitations/${id}/resend`, resendBody, "STAFF", resendKey);
+  expect(
+    await db
+      .m("outboxEvents")
+      .countDocuments({ type: "INVITATION_EMAIL", resourceId: visitId }),
+  ).toBe(2);
+});
+
+it("keeps drafts unsent, supports phone-only visitors and queues activation", async () => {
+  const body = {
+    visitor: { firstName: "DraftGuest", email: "draft-guest@example.test" },
+    purpose: "Draft email",
+    visitorType: "BUSINESS",
+    draft: true,
+    expectedArrivalAt: new Date(Date.now() + 30 * 60000).toISOString(),
+    expectedDepartureAt: new Date(Date.now() + 90 * 60000).toISOString(),
+  };
+  const draft = (await post("/invitations", body, "STAFF")).body.data;
+  expect(draft.visit.status).toBe("PRE_REGISTERED");
+  expect(
+    await db
+      .m("outboxEvents")
+      .countDocuments({ type: "INVITATION_EMAIL", resourceId: draft.visit.id }),
+  ).toBe(0);
+  expect(
+    (await get(`/invitations/${draft.id}/share`, "STAFF")).body.data
+      .deliveryStatus,
+  ).toBe("DRAFT");
+  expect(
+    (
+      await post(
+        `/invitations/${draft.id}/activate`,
+        { version: draft.visit.version },
+        "STAFF",
+      )
+    ).status,
+  ).toBe(201);
+  expect(
+    await db
+      .m("outboxEvents")
+      .countDocuments({ type: "INVITATION_EMAIL", resourceId: draft.visit.id }),
+  ).toBe(1);
+  const phone = (
+    await post(
+      "/invitations",
+      {
+        ...body,
+        draft: false,
+        visitor: { firstName: "PhoneGuest", phone: "+2348012345678" },
+      },
+      "STAFF",
+    )
+  ).body.data;
+  expect(
+    (await get(`/invitations/${phone.id}/share`, "STAFF")).body.data
+      .deliveryStatus,
+  ).toBe("NO_EMAIL");
+  expect(
+    await db
+      .m("outboxEvents")
+      .countDocuments({ type: "INVITATION_EMAIL", resourceId: phone.visit.id }),
+  ).toBe(0);
+});
+
+it("deduplicates concurrent reminder scans and suppresses decided approval emails", async () => {
+  const w = await walkin();
+  await db
+    .m("visits")
+    .updateOne(
+      { _id: w.visit.id },
+      { $set: { receptionArrivedAt: new Date(Date.now() - 20 * 60000) } },
+    );
+  const automation = app.get(EmailAutomation);
+  await Promise.all([automation.tick(), automation.tick()]);
+  const events = await db
+    .m("outboxEvents")
+    .find({ type: "APPROVAL_EMAIL", resourceId: w.visit.id })
+    .lean();
+  expect(events).toHaveLength(2); // Host reminder and one active administrator escalation.
+  expect(new Set(events.map((e: any) => e.eventId)).size).toBe(2);
+  sentEmail.mockClear();
+  for (const event of events)
+    expect(
+      await app.get(emailModule.OperationalEmailDelivery).deliver(event),
+    ).toBe(true);
+  expect(sentEmail.mock.calls.map(([mail]) => mail.to).sort()).toEqual([
+    "admin@example.test",
+    "staff@example.test",
+  ]);
+  expect(sentEmail.mock.calls[0][0].text).toMatch(
+    /Arrived: \d{4}-\d{2}-\d{2} \d{1,2}:\d{2} WAT/,
+  );
+  await approve(w);
+  for (const event of events)
+    expect(
+      await app.get(emailModule.OperationalEmailDelivery).deliver(event),
+    ).toBe(false);
+});
+
+it("skips stale arrival reminders after rescheduling and sends the replacement once", async () => {
+  const body = {
+    visitor: {
+      firstName: "ReminderGuest",
+      email: "reminder-guest@example.test",
+    },
+    purpose: "Reminder",
+    visitorType: "BUSINESS",
+    expectedArrivalAt: new Date(Date.now() + 30 * 60000).toISOString(),
+    expectedDepartureAt: new Date(Date.now() + 90 * 60000).toISOString(),
+  };
+  const invitation = (await post("/invitations", body, "STAFF")).body.data;
+  await app.get(EmailAutomation).tick();
+  const old = await db
+    .m("outboxEvents")
+    .findOne({ type: "VISIT_REMINDER_EMAIL", resourceId: invitation.visit.id })
+    .lean();
+  expect(old).toBeTruthy();
+  const updated = await patch(
+    `/invitations/${invitation.id}`,
+    {
+      version: invitation.visit.version,
+      expectedArrivalAt: new Date(Date.now() + 45 * 60000).toISOString(),
+    },
+    "STAFF",
+  );
+  expect(updated.status).toBe(200);
+  expect(await app.get(emailModule.OperationalEmailDelivery).deliver(old)).toBe(
+    false,
+  );
+  await Promise.all([
+    app.get(EmailAutomation).tick(),
+    app.get(EmailAutomation).tick(),
+  ]);
+  expect(
+    await db.m("outboxEvents").countDocuments({
+      type: "VISIT_REMINDER_EMAIL",
+      resourceId: invitation.visit.id,
+    }),
+  ).toBe(2);
+});
+
+it("schedules daily CSV reports once per administrator and checks role at delivery", async () => {
+  const config = app.get(CONFIG);
+  const originalHour = config.reportHour;
+  config.reportHour = 0;
+  try {
+    await Promise.all([
+      app.get(EmailAutomation).tick(),
+      app.get(EmailAutomation).tick(),
+    ]);
+    const report: any = await db
+      .m("outboxEvents")
+      .findOne({ type: "REPORT_EMAIL", resourceId: users.ADMIN.id })
+      .lean();
+    expect(report).toBeTruthy();
+    expect(
+      await db.m("outboxEvents").countDocuments({ eventId: report.eventId }),
+    ).toBe(1);
+    sentEmail.mockClear();
+    expect(
+      await app.get(emailModule.OperationalEmailDelivery).deliver(report),
+    ).toBe(true);
+    const mail: any = sentEmail.mock.calls[0][0];
+    expect(mail.to).toBe("admin@example.test");
+    expect(mail.attachments).toHaveLength(6);
+    expect(mail.text).toMatch(/Generated: \d{4}-\d{2}-\d{2} \d{1,2}:\d{2} WAT/);
+    expect(
+      await app
+        .get(emailModule.OperationalEmailDelivery)
+        .deliver({ ...report, resourceId: users.STAFF.id }),
+    ).toBe(false);
+  } finally {
+    config.reportHour = originalHour;
+  }
+});
+
+it("retries failed invitation delivery and marks resolved events processed", async () => {
+  const invitation = (
+    await post(
+      "/invitations",
+      {
+        visitor: { firstName: "RetryGuest", email: "retry-guest@example.test" },
+        purpose: "Retry",
+        visitorType: "BUSINESS",
+        expectedArrivalAt: new Date(Date.now() + 30 * 60000).toISOString(),
+        expectedDepartureAt: new Date(Date.now() + 90 * 60000).toISOString(),
+      },
+      "STAFF",
+    )
+  ).body.data;
+  const event: any = await db
+    .m("outboxEvents")
+    .findOne({ type: "INVITATION_EMAIL", resourceId: invitation.visit.id })
+    .lean();
+  const deliver = app.get(emailModule.OperationalEmailDelivery);
+  const original = deliver.deliver.bind(deliver);
+  const spy = jest
+    .spyOn(deliver, "deliver")
+    .mockImplementation(async (e: any) => {
+      if (e.eventId === event.eventId) throw new Error("SMTP unavailable");
+      return original(e);
+    });
+  const errorLog = jest.spyOn(console, "error").mockImplementation(() => {});
+  try {
+    await app.get(OutboxWorker).tick();
+  } finally {
+    spy.mockRestore();
+    errorLog.mockRestore();
+  }
+  let failed: any = await db.m("outboxEvents").findById(event._id).lean();
+  expect(failed.status).toBe("PENDING");
+  expect(failed.attempts).toBe(1);
+  expect(failed.nextAttemptAt.getTime()).toBeGreaterThan(Date.now());
+  expect(
+    (await get(`/invitations/${invitation.id}/share`, "STAFF")).body.data
+      .deliveryStatus,
+  ).toBe("QUEUED");
+  await db
+    .m("outboxEvents")
+    .updateOne({ _id: event._id }, { $set: { nextAttemptAt: new Date(0) } });
+  await app.get(OutboxWorker).tick();
+  failed = await db.m("outboxEvents").findById(event._id).lean();
+  expect(failed.status).toBe("PROCESSED");
+  expect(failed.attempts).toBe(2);
+  expect(failed.payload).toEqual({});
 });

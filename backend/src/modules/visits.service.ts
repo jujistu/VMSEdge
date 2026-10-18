@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { Inject, Injectable } from "@nestjs/common";
 import { ClientSession, Types } from "mongoose";
 import { randomBytes } from "node:crypto";
 import {
@@ -15,6 +15,7 @@ import {
   schedule,
   scope,
 } from "../common/domain";
+import { CONFIG, Configuration } from "../config/config";
 import { VisitQueryDto } from "../common/dto";
 import { Database } from "../infrastructure/database";
 import { Journal } from "../infrastructure/services";
@@ -25,7 +26,62 @@ export class VisitsService {
     readonly db: Database,
     private journal: Journal,
     private records: RecordsService,
+    @Inject(CONFIG) private config: Configuration,
   ) {}
+  async queueInvitation(visit: any, session: ClientSession) {
+    if (
+      !this.config.emailAutomation ||
+      !["EXPECTED", "CANCELLED"].includes(visit.status)
+    )
+      return false;
+    const visitor: any = await this.db
+      .m("visitors")
+      .findById(visit.visitorId)
+      .session(session)
+      .lean();
+    if (!visitor?.email) return false;
+    await this.journal.event(
+      "INVITATION_EMAIL",
+      visit._id,
+      { version: visit.version },
+      session,
+    );
+    return true;
+  }
+  async emailStatus(visit: any, session?: ClientSession) {
+    if (!this.config.emailAutomation)
+      return { deliveryMode: "MANUAL", deliveryStatus: "DISABLED" };
+    if (visit.status === "PRE_REGISTERED")
+      return { deliveryMode: "EMAIL", deliveryStatus: "DRAFT" };
+    const visitor: any = await this.db
+      .m("visitors")
+      .findById(visit.visitorId)
+      .session(session || null)
+      .lean();
+    if (!visitor?.email)
+      return { deliveryMode: "MANUAL", deliveryStatus: "NO_EMAIL" };
+    const event: any = await this.db
+      .m("outboxEvents")
+      .findOne({
+        type: "INVITATION_EMAIL",
+        resourceId: visit._id,
+      })
+      .sort({ createdAt: -1, _id: -1 })
+      .session(session || null)
+      .lean();
+    return {
+      deliveryMode: "EMAIL",
+      deliveryStatus: !event
+        ? "NOT_QUEUED"
+        : event.status === "PROCESSED"
+          ? "SENT"
+          : event.status === "FAILED"
+            ? "FAILED"
+            : event.status === "SKIPPED"
+              ? "SKIPPED"
+              : "QUEUED",
+    };
+  }
   async admission(
     visitorId: any,
     hostId: any,
@@ -220,6 +276,7 @@ export class VisitsService {
           s,
         );
       }
+      if (source === "INVITATION") await this.queueInvitation(visit, s);
       await this.journal.audit(
         a,
         source === "INVITATION"
@@ -666,6 +723,12 @@ export class VisitsService {
           { recipients: [...new Set(recipients)], resourceType: "visits" },
           s,
         );
+        if (
+          v.source === "INVITATION" &&
+          (action === "activate" ||
+            (action === "cancel" && v.status !== "PRE_REGISTERED"))
+        )
+          await this.queueInvitation(changed, s);
         return this.view(a, changed, s);
       },
     );
@@ -727,6 +790,7 @@ export class VisitsService {
         s,
         { fields: Object.keys(changes) },
       );
+      if (invitation) await this.queueInvitation(changed, s);
       return this.view(a, changed, s);
     });
   }
@@ -742,8 +806,7 @@ export class VisitsService {
       invitationCode: link.invitationCode,
       qrIdentifier: link.qrIdentifier,
       qrPayload: `vms:invitation:${link.qrIdentifier}`,
-      deliveryMode: "MANUAL",
-      deliveryStatus: "NOT_SENT",
+      ...(await this.emailStatus(visit)),
     };
   }
   async resend(a: Actor, id: string, d: any, key: string) {
@@ -783,12 +846,23 @@ export class VisitsService {
           link._id,
           s,
         );
+        const queued = await this.queueInvitation(
+          {
+            _id: visit._id,
+            visitorId: visit.visitorId,
+            status: visit.status,
+            version: visit.version + 1,
+          },
+          s,
+        );
         return {
           invitationCode: link.invitationCode,
           qrIdentifier: link.qrIdentifier,
           qrPayload: `vms:invitation:${link.qrIdentifier}`,
-          deliveryMode: "MANUAL",
-          deliveryStatus: "NOT_SENT",
+          ...(await this.emailStatus(visit, s)),
+          ...(queued
+            ? { deliveryMode: "EMAIL", deliveryStatus: "QUEUED" }
+            : {}),
         };
       },
     );

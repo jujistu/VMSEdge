@@ -2,6 +2,7 @@ import { NestFactory } from "@nestjs/core";
 import "reflect-metadata";
 import { AppModule } from "./app.module";
 import { Database } from "./infrastructure/database";
+import { EmailAutomation } from "./infrastructure/email-automation";
 import { OutboxWorker } from "./infrastructure/worker.service";
 import { VisitsService } from "./modules/visits.service";
 async function main() {
@@ -21,6 +22,7 @@ async function main() {
       await app.get(OutboxWorker).tick(() => stopped);
       if (Date.now() - lastExpiry > 60000) {
         await app.get(VisitsService).expire();
+        await app.get(EmailAutomation).tick(new Date(), () => stopped);
         lastExpiry = Date.now();
       }
     } catch {

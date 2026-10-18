@@ -26,6 +26,7 @@ import {
   fullName,
   time,
   day,
+  dateTime,
   labels,
   blockers,
 } from "@/lib/models";
@@ -503,6 +504,20 @@ export function VisitDetails({
   const [reason, setReason] = useState("");
   const [confirm, setConfirm] = useState("");
   const [share, setShare] = useState(false);
+  const [deliveryStatus, setDeliveryStatus] = useState("");
+  const deliveryMessage = (status: string) =>
+    ({
+      QUEUED: "Invitation email queued for delivery.",
+      SENT: "Invitation email accepted by the mail server.",
+      FAILED:
+        "Email delivery failed. You can retry or share the code manually.",
+      NO_EMAIL: "No visitor email address. Share the code manually.",
+      DISABLED:
+        "Automatic email delivery is disabled. Share the code manually.",
+      DRAFT: "Activate this draft to send an invitation email.",
+      SKIPPED: "Email was skipped because the visit was no longer eligible.",
+      NOT_QUEUED: "No invitation email has been queued yet.",
+    })[status] || "";
   const [editing, setEditing] = useState(false);
   const [editVersion, setEditVersion] = useState(v.version);
   const [notes, setNotes] = useState(v.notes || "");
@@ -596,15 +611,15 @@ export function VisitDetails({
               ["Department", host?.department || "Unavailable"],
               ["Purpose", v.purpose],
               ["Type / source", `${v.type.toLowerCase()} · ${v.source}`],
-              ["Scheduled arrival", `${day(v.arrival)}, ${time(v.arrival)}`],
+              ["Scheduled arrival", `${day(v.arrival)} ${time(v.arrival)}`],
               [
                 "Expected departure",
-                `${day(v.departure)}, ${time(v.departure)}`,
+                `${day(v.departure)} ${time(v.departure)}`,
               ],
-              ["Reception arrival", time(v.arrivedAt)],
+              ["Reception arrival", dateTime(v.arrivedAt)],
               [
                 "Check-in / check-out",
-                `${time(v.checkIn)} / ${time(v.checkOut)}`,
+                `${dateTime(v.checkIn)} / ${dateTime(v.checkOut)}`,
               ],
               ["Email", p?.email || "—"],
               ["Phone", p?.phone || "—"],
@@ -734,7 +749,7 @@ export function VisitDetails({
           {share && (
             <div className="mt-5 rounded-xl border border-blue-100 bg-blue-50 p-4 text-center">
               <p className="text-[10px] font-semibold uppercase tracking-widest text-blue-600">
-                Manual invitation sharing
+                Invitation details
               </p>
               <p className="my-3 font-mono text-2xl font-bold tracking-wider text-blue-900">
                 {v.code}
@@ -743,13 +758,18 @@ export function VisitDetails({
                 Share this invitation code with your guest. It identifies the
                 invitation, but never grants admission.
               </p>
+              {deliveryStatus && (
+                <p className="mb-3 text-xs text-slate-500">
+                  {deliveryMessage(deliveryStatus)}
+                </p>
+              )}
               <div className="flex justify-center gap-2">
                 <button
                   className="btn-light"
                   onClick={async () => {
                     try {
                       await navigator.clipboard.writeText(
-                        `${v.code}\n${fullName(p)}\n${day(v.arrival)}, ${time(v.arrival)} WAT\nHost: ${fullName(host)}`,
+                        `${v.code}\n${fullName(p)}\n${day(v.arrival)} ${time(v.arrival)} WAT\nHost: ${fullName(host)}`,
                       );
                       toast.success("Invitation details copied");
                     } catch {
@@ -838,7 +858,10 @@ export function VisitDetails({
                 className="btn-light"
                 onClick={async () => {
                   try {
-                    await request(`/invitations/${v.invitationId}/share`);
+                    const response = await request<{ deliveryStatus: string }>(
+                      `/invitations/${v.invitationId}/share`,
+                    );
+                    setDeliveryStatus(response.data.deliveryStatus);
                     setShare(!share);
                   } catch (e) {
                     toast.error(
@@ -852,26 +875,33 @@ export function VisitDetails({
                 Share invitation
               </button>
             )}
-          {mayInvite &&
-            v.invitationId &&
-            ["EXPECTED", "PRE_REGISTERED"].includes(v.status) && (
-              <button
-                className="btn-light"
-                onClick={async () => {
-                  if (
-                    await update({
-                      path: `/invitations/${v.invitationId}/resend`,
-                      body: { version: v.version },
-                    })
-                  )
-                    toast.success(
-                      "Invitation ready to share manually. No email was sent.",
+          {mayInvite && v.invitationId && v.status === "EXPECTED" && (
+            <button
+              className="btn-light"
+              onClick={async () => {
+                if (
+                  await update({
+                    path: `/invitations/${v.invitationId}/resend`,
+                    body: { version: v.version },
+                  })
+                ) {
+                  try {
+                    const response = await request<{ deliveryStatus: string }>(
+                      `/invitations/${v.invitationId}/share`,
                     );
-                }}
-              >
-                Refresh sharing details
-              </button>
-            )}
+                    setDeliveryStatus(response.data.deliveryStatus);
+                    toast.info(deliveryMessage(response.data.deliveryStatus));
+                  } catch {
+                    toast.info(
+                      "Request saved. Reopen invitation details to check delivery status.",
+                    );
+                  }
+                }
+              }}
+            >
+              Resend invitation email
+            </button>
+          )}
         </div>
       </DialogContent>
     </Dialog>

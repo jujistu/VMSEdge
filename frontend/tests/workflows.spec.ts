@@ -188,8 +188,23 @@ test("staff creates, edits, activates, and shares a real invitation", async ({
   await page
     .getByRole("button", { name: "Share invitation", exact: true })
     .click();
-  await expect(page.getByText("Manual invitation sharing")).toBeVisible();
+  await expect(
+    page.getByText("Invitation details", { exact: true }),
+  ).toBeVisible();
   await expect(page.getByRole("dialog")).toContainText("VMS-");
+  await expect(page.getByRole("dialog")).toContainText(
+    "Invitation email queued for delivery.",
+  );
+  await expect(page.getByRole("dialog")).toContainText(
+    /\d{4}-\d{2}-\d{2} \d{1,2}:\d{2}/,
+  );
+  await page
+    .getByRole("button", { name: "Resend invitation email", exact: true })
+    .click();
+  await saved(page);
+  await expect(page.getByRole("dialog")).toContainText(
+    "Invitation email queued for delivery.",
+  );
   await expect(
     page.getByRole("button", { name: "Check in", exact: true }),
   ).toHaveCount(0);

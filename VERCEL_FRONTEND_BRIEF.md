@@ -12,6 +12,15 @@ Design a professional operations interface with a collapsible sidebar, clear pag
 
 Implement the features, role rules, workflows, and integration requirements below. Deliver working pages and a short setup guide listing environment configuration and any remaining backend gaps. Keep unsupported future features out of the active navigation.
 
+## Email automation update — 18 October 2026
+
+The backend now supports email-only invitation delivery, calendar attachments,
+visitor/approval reminders, administrator escalation alerts and scheduled daily
+aggregate reports. See `backend/EMAIL_AUTOMATION.md` for the authoritative current
+contract. Existing manual-delivery limitations below are superseded by this update.
+Frontend changes are limited to invitation delivery status/resend wording and
+human-readable Africa/Lagos dates (`YYYY-MM-DD H:mm`); API dates remain ISO.
+
 ## 1. Roles and navigation
 
 | Capability | Admin | Receptionist | Staff / host |

@@ -92,8 +92,9 @@ Production Swagger is disabled. No code deploys or seeds production automaticall
 - Every guest gets an individual visit; `primaryVisitId` groups people but does
   not propagate check-in/checkout/approval. Group schedules cannot be edited;
   cancel/recreate if a grouped appointment must move.
-- Invitations are manually shared. `resend` returns `NOT_SENT`, not an email
-  delivery claim. QR payloads identify records and never authorize admission.
+- Active invitations queue email delivery with calendar attachments; drafts and
+  visitors without email retain manual sharing. Queue acceptance is not an inbox
+  delivery receipt. See [email automation](EMAIL_AUTOMATION.md). QR payloads identify records and never authorize admission.
 - Search supports indexed prefixes plus exact invitation/QR identifiers, not
   arbitrary substring matching. Broad admission searches require narrowing.
 - CSV exports use the same permissions and neutralize spreadsheet formulas.
@@ -124,7 +125,9 @@ index prevent invalid transitions and simultaneous occupancy for one person.
 Blacklist/admission and host/department changes share write-conflict documents.
 
 Run at least one worker. Leases permit multiple workers and crash recovery.
-In-app delivery is deduplicated; SMTP delivery is at least once and can repeat
+The worker also schedules visitor reminders, host approval reminders, admin
+escalations and daily aggregate report emails. See [configuration and delivery
+semantics](EMAIL_AUTOMATION.md). In-app delivery is deduplicated; SMTP delivery is at least once and can repeat
 following a crash after send. Stable Message-ID assists downstream deduplication.
 Ten unsuccessful attempts mark an event FAILED; monitor readiness counts/logs
 and use an operator database action to requeue after fixing the underlying cause.

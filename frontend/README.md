@@ -23,7 +23,7 @@ Every role can edit their profile, change their password, read their own notific
 
 Access tokens are held in memory. Session restoration uses the backend's rotating HttpOnly cookie. Logout revokes the session. Role and ownership checks run on the server, and visit action buttons follow the API's allowed actions and admission eligibility. Writes use server versions, with conflict refresh and error feedback. Workspace data refreshes every 30 seconds while visible. List loading follows every backend page so local filters and exports do not silently omit records after the first page.
 
-Invitation codes are shared manually; refreshing sharing details does not send invitation mail. Account setup and recovery emails are delivered by the backend worker.
+Active invitations are emailed automatically by the backend worker with calendar attachments. The existing sharing panel supports manual copy/print and displays email queue status; “Resend invitation email” queues another email. Visitors without an email retain manual sharing. Dates and timestamps display as `YYYY-MM-DD H:mm` in Africa/Lagos. See [email automation](../backend/EMAIL_AUTOMATION.md) for SMTP, reminder and daily report configuration.
 
 ## Verification
 

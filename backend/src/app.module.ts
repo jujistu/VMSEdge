@@ -15,6 +15,11 @@ import {
   InAppDelivery,
   OutboxWorker,
 } from "./infrastructure/worker.service";
+import {
+  EmailAutomation,
+  OperationalEmailDelivery,
+} from "./infrastructure/email-automation";
+import { AnalyticsModule } from "./modules/analytics.module";
 import { AuditLogsModule } from "./modules/audit-logs/audit-logs.module";
 import { AuthModule } from "./modules/auth";
 import { BlacklistModule } from "./modules/blacklist/blacklist.module";
@@ -44,9 +49,15 @@ export class ConfigurationModule {}
 })
 export class InfrastructureModule {}
 @Module({
-  imports: [VisitsModule],
-  providers: [InAppDelivery, AuthenticationEmailDelivery, OutboxWorker],
-  exports: [OutboxWorker],
+  imports: [VisitsModule, AnalyticsModule],
+  providers: [
+    InAppDelivery,
+    AuthenticationEmailDelivery,
+    OperationalEmailDelivery,
+    EmailAutomation,
+    OutboxWorker,
+  ],
+  exports: [OutboxWorker, EmailAutomation],
 })
 export class WorkerModule {}
 @Module({

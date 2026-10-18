@@ -48,6 +48,18 @@ export function configuration(env: NodeJS.ProcessEnv = process.env) {
     if (!Number.isInteger(n) || n < 1) throw new Error(`Invalid ${k}`);
     return n;
   };
+  const boolean = (k: string, fallback = true) => {
+    if (env[k] === undefined) return fallback;
+    if (!["true", "false"].includes(env[k]!)) throw new Error(`Invalid ${k}`);
+    return env[k] === "true";
+  };
+  const reportHour = Number(env.REPORT_EMAIL_HOUR ?? 8);
+  if (!Number.isInteger(reportHour) || reportHour < 0 || reportHour > 23)
+    throw new Error("REPORT_EMAIL_HOUR must be 0–23");
+  const approvalReminderMinutes = integer("APPROVAL_REMINDER_MINUTES", 5);
+  const approvalEscalationMinutes = integer("APPROVAL_ESCALATION_MINUTES", 15);
+  if (approvalEscalationMinutes <= approvalReminderMinutes)
+    throw new Error("Approval escalation must follow the reminder");
   const trustProxy = Number(env.TRUST_PROXY || 0);
   if (!Number.isInteger(trustProxy) || trustProxy < 0 || trustProxy > 10)
     throw new Error("TRUST_PROXY must be an integer from 0 to 10");
@@ -60,6 +72,12 @@ export function configuration(env: NodeJS.ProcessEnv = process.env) {
     throw new Error("Reset URL requires HTTPS");
   return {
     production,
+    emailAutomation: boolean("EMAIL_AUTOMATION_ENABLED"),
+    reportEmails: boolean("REPORT_EMAILS_ENABLED"),
+    visitReminderMinutes: integer("VISIT_REMINDER_MINUTES", 60),
+    approvalReminderMinutes,
+    approvalEscalationMinutes,
+    reportHour,
     mongo: required("MONGODB_URI"),
     port: integer("PORT", 4000),
     privateKey,

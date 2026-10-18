@@ -1,6 +1,7 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
-import { createTransport } from "nodemailer";
+import { displayDate } from "../common/dates";
+import { OperationalEmailDelivery, sendEmail } from "./email-automation";
 import { oid } from "../common/domain";
 import { CONFIG, Configuration } from "../config/config";
 import { Database } from "./database";
@@ -13,13 +14,37 @@ export class InAppDelivery implements DeliveryAdapter {
   constructor(private db: Database) {}
   async deliver(event: any) {
     for (const recipient of event.payload.recipients || []) {
-      const title = event.type.toLowerCase().replaceAll("_", " ");
+      if (["APPROVAL_REMINDER", "APPROVAL_ESCALATION"].includes(event.type)) {
+        const visit: any = await this.db
+          .m("visits")
+          .findById(event.resourceId)
+          .lean();
+        if (
+          !visit ||
+          visit.status !== "PENDING" ||
+          visit.expectedDepartureAt <= new Date()
+        )
+          return;
+        const active = await this.db
+          .m("users")
+          .exists({
+            _id: oid(recipient),
+            status: "ACTIVE",
+            ...(event.type === "APPROVAL_ESCALATION"
+              ? { role: "ADMIN" }
+              : { _id: visit.hostId, role: "STAFF" }),
+          });
+        if (!active) continue;
+      }
+      const title =
+        event.payload.title || event.type.toLowerCase().replaceAll("_", " ");
       await this.db.m("notifications").updateOne(
         { userId: oid(recipient), eventId: event.eventId, type: event.type },
         {
           $setOnInsert: {
             title: title[0].toUpperCase() + title.slice(1),
-            message: "Open the linked record to see details.",
+            message:
+              event.payload.message || "Open the linked record to see details.",
             resourceType: event.payload.resourceType || "visits",
             resourceId: event.resourceId,
             isRead: false,
@@ -41,35 +66,14 @@ export class AuthenticationEmailDelivery implements DeliveryAdapter {
       this.crypto.decrypt(event.payload.encrypted, "outbox"),
     );
     if (new Date(p.expiresAt) <= new Date()) return;
-    const transport = createTransport({
-      host: process.env.SMTP_HOST || "localhost",
-      port: Number(process.env.SMTP_PORT || 1025),
-      secure: process.env.SMTP_SECURE === "true",
-      ...(process.env.SMTP_USERNAME
-        ? {
-            auth: {
-              user: process.env.SMTP_USERNAME,
-              pass: process.env.SMTP_PASSWORD,
-            },
-          }
-        : {}),
-      connectionTimeout: 10000,
-      socketTimeout: 20000,
+    await sendEmail(event.eventId, {
+      to: p.to,
+      subject:
+        p.purpose === "SET_PASSWORD"
+          ? "Set up your VMS account"
+          : "Reset your VMS password",
+      text: `Use this single-use link before ${displayDate(p.expiresAt)} WAT (Africa/Lagos):\n${p.url}`,
     });
-    try {
-      await transport.sendMail({
-        from: process.env.MAIL_FROM || "vms@localhost",
-        to: p.to,
-        subject:
-          p.purpose === "SET_PASSWORD"
-            ? "Set up your VMS account"
-            : "Reset your VMS password",
-        text: `Use this single-use link before ${p.expiresAt}:\n${p.url}`,
-        messageId: `<${event.eventId}@vms.local>`,
-      });
-    } finally {
-      transport.close();
-    }
   }
 }
 @Injectable()
@@ -78,6 +82,7 @@ export class OutboxWorker {
     private db: Database,
     private inApp: InAppDelivery,
     private email: AuthenticationEmailDelivery,
+    private operationalEmail: OperationalEmailDelivery,
   ) {}
   async tick(shouldStop: () => boolean = () => false) {
     for (let i = 0; i < 50 && !shouldStop(); i++) {
@@ -100,15 +105,29 @@ export class OutboxWorker {
         { new: true, sort: { nextAttemptAt: 1 } },
       );
       if (!event) break;
+      // Keep long-running report deliveries leased while their queries/SMTP run.
+      const heartbeat = setInterval(() => {
+        void this.db
+          .m("outboxEvents")
+          .updateOne(
+            { _id: event._id, leaseOwner: owner },
+            { $set: { leaseUntil: new Date(Date.now() + 60000) } },
+          )
+          .catch(() => {});
+      }, 20000);
       try {
-        await (event.type === "AUTH_EMAIL" ? this.email : this.inApp).deliver(
-          event,
-        );
+        const adapter =
+          event.type === "AUTH_EMAIL"
+            ? this.email
+            : event.type.endsWith("_EMAIL")
+              ? this.operationalEmail
+              : this.inApp;
+        const delivered = await adapter.deliver(event);
         await this.db.m("outboxEvents").updateOne(
           { _id: event._id, leaseOwner: owner },
           {
             $set: {
-              status: "PROCESSED",
+              status: delivered === false ? "SKIPPED" : "PROCESSED",
               processedAt: new Date(),
               payload: {},
             },
@@ -138,6 +157,8 @@ export class OutboxWorker {
             error: "DELIVERY_FAILED",
           }),
         );
+      } finally {
+        clearInterval(heartbeat);
       }
     }
   }

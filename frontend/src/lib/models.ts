@@ -122,17 +122,16 @@ export const initials = (p?: { firstName: string; lastName: string }) =>
 export const time = (value?: string) =>
   value
     ? new Intl.DateTimeFormat("en-GB", {
-        hour: "2-digit",
+        hour: "numeric",
         minute: "2-digit",
         timeZone: "Africa/Lagos",
-      }).format(new Date(value))
+      })
+        .format(new Date(value))
+        .replace(/^0(?=\d:)/, "")
     : "—";
-export const day = (value: string) =>
-  new Intl.DateTimeFormat("en-GB", {
-    day: "numeric",
-    month: "short",
-    timeZone: "Africa/Lagos",
-  }).format(new Date(value));
+export const day = (value: string) => localDate(value);
+export const dateTime = (value?: string) =>
+  value ? `${localDate(value)} ${time(value)}` : "—";
 export const localDate = (value: string) =>
   new Intl.DateTimeFormat("en-CA", {
     year: "numeric",

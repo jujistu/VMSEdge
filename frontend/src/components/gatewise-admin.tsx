@@ -539,7 +539,7 @@ export default function AdminPages({
                         onClick={() => setSelectedAudit(a.id)}
                       >
                         <td className="table-td whitespace-nowrap text-slate-400">
-                          {day(a.date)} · {time(a.date)}
+                          {day(a.date)} {time(a.date)}
                         </td>
                         <td className="table-td font-medium">{a.action}</td>
                         <td className="table-td">{a.actor}</td>

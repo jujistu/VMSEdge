@@ -1,6 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import { once } from "node:events";
 import { Actor, csvCell, dayBounds, fail, oid, Role } from "../common/domain";
+import { displayDate } from "../common/dates";
 import { VisitQueryDto } from "../common/dto";
 import { Database } from "../infrastructure/database";
 import { Journal } from "../infrastructure/services";
@@ -353,7 +354,7 @@ export class AnalyticsService {
             fields
               .map((k) =>
                 csvCell(
-                  data[k] instanceof Date ? data[k].toISOString() : data[k],
+                  data[k] instanceof Date ? displayDate(data[k]) : data[k],
                 ),
               )
               .join(",") + "\r\n";
